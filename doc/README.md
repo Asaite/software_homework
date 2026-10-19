@@ -2,7 +2,7 @@
 
 本项目采用 TypeScript 和面向对象方式实现 Lab 1 Phase 1。领域层维护图形树和约束，应用层通过 Command 执行操作，外层负责终端交互与 SVG 文件读写。Command 和 Composite 是核心模式，快照负责撤销恢复，Visitor 支持按具体图形生成显示信息。
 
-当前增量完成工程配置、六种图形、图形树、十九种命令对象、快照历史和存储接口。命令目前通过对象 API 调用；`npm run demo` 是固定流程演示。REPL、字符串命令解析、真实 XML 读写及缺失 ID 补全尚未实现，当前增量不是 Phase 1 最终完成版本。
+当前增量完成工程配置、六种图形、图形树、十九种命令对象、快照历史和真实 SVG 文件读写。导入会预扫描显式 ID，再为缺失 ID 分配名称并返回警告。命令目前通过对象 API 调用；`npm run demo` 是固定流程演示。REPL 和字符串命令解析尚未接入，当前增量不是 Phase 1 最终完成版本。
 
 ## 架构方案
 
@@ -23,6 +23,7 @@
 │   │   ├── CommandHistory.ts    # undo/redo 与 IO 屏障
 │   │   ├── CommandResult.ts     # 不可变输出 DTO
 │   │   ├── ShapeFactory.ts      # 六种图形的唯一类型分派点
+│   │   ├── ShapeDefinition.ts   # 创建参数和文本能力的内置元数据
 │   │   ├── ApplicationError.ts
 │   │   ├── commands/
 │   │   │   ├── Command.ts
@@ -50,11 +51,12 @@
 │   │   ├── DomainError.ts
 │   │   └── internal/           # 数值校验、树关系修改能力
 │   └── infrastructure/
-│       └── svg/                # 已预留目录，实际适配器待实现
+│       └── svg/                # SvgReader、SvgWriter、SvgWriterVisitor、XmlSvgStore
 ├── tests/
 │   ├── domain/                 # 几何、树约束、快照
 │   ├── application/            # 命令事务、历史、显示
 │   ├── integration/            # 存储接口协作、依赖规则
+│   ├── infrastructure/         # 真实 XML 编解码、文件事务
 │   └── fixtures/               # MemorySvgStore 测试适配器
 └── doc/
     └── README.md
@@ -65,12 +67,12 @@
 | `domain` | 封装图形状态、几何行为、样式和树结构约束 | 读取终端、文件操作、XML 解析、撤销栈 |
 | `application` | 执行命令、管理会话及历史、生成显示结果、定义存储接口 | 直接打印、绑定具体 XML 库或文件系统 |
 | `cli` | 输入解析和终端输出；当前只实现输出 | 计算几何、直接修改树结构 |
-| `infrastructure/svg` | 后续实现 XML 与文件系统适配 | 命令业务、终端交互 |
+| `infrastructure/svg` | XML 编解码、文件读取和原子保存 | 命令业务、终端交互 |
 | `Main` | 创建并连接对象，运行入口流程 | 图形业务规则 |
 
-后续在 `cli` 中增加 `CliApplication`、`CommandTokenizer`、`CommandFactory`；在基础设施中增加 `XmlSvgStore`、`SvgReader`、`SvgWriter` 和 `SvgWriterVisitor`。暂不为这些类创建抛出“未实现”的空实现。
+后续在 `cli` 中增加 `CliApplication`、`CommandTokenizer`、`CommandFactory` 并接入入口。`XmlSvgStore`、`SvgReader`、`SvgWriter` 和 `SvgWriterVisitor` 已实现，不通过空类伪装已完成模块。
 
-以下 PlantUML 表示目标组件关系，虚线标注尚未接入的基础设施：
+以下 PlantUML 表示组件关系；Main 对文件适配器的注入将在 CLI 接入时完成：
 
 ```plantuml
 @startuml
@@ -81,7 +83,7 @@ package "application" {
   interface "SvgStore" as Store
 }
 component "domain\n图形树与约束" as Domain
-component "infrastructure.svg\n待实现" as Infra
+component "infrastructure.svg\nXML 与文件读写" as Infra
 
 Main --> CLI
 Main --> App
@@ -165,7 +167,7 @@ interface Command {
 
 编辑命令对象为一次性执行对象，禁止重复执行并覆盖原有快照；重做必须通过历史管理器调用 `redo()`。
 
-文档类、显示类和历史类直接实现 `Command`。`ReadCommand`、`SaveCommand` 已通过 `SvgStore` 接口接入会话，但当前没有生产环境存储适配器；没有配置接口实现时明确报 `SVG file storage is not configured`。
+文档类、显示类和历史类直接实现 `Command`。`ReadCommand`、`SaveCommand` 通过 `SvgStore` 接口接入会话，`XmlSvgStore` 是实际文件适配器。对象 API 仍允许不注入存储以便独立测试；此时文件命令明确报 `SVG file storage is not configured`。
 
 ### Composite 模式
 
@@ -200,7 +202,7 @@ Shape
 
 `ShapeVisitor<R>` 为六种图形声明独立方法。每种图形的 `accept()` 直接调用对应访问方法。当前 `ShapeTextVisitor` 生成含几何值的摘要，`TreeFormatter` 递归组织树形符号；`ShowFormatter` 根据只读属性视图生成明细，无需按图形类型分支。
 
-后续 `SvgWriterVisitor` 通过相同机制输出 XML 节点，领域层不引用 XML 类型。增加新图形时需要扩展 Visitor，这是内置类型固定阶段接受的成本。
+`SvgWriterVisitor` 通过相同机制输出 XML 节点，领域层不引用 XML 类型。增加新图形时需要扩展 Visitor，这是内置类型固定阶段接受的成本。
 
 按名称选择实现只保留两个位置，并按作业要求记为待重构项：
 
@@ -209,7 +211,7 @@ Shape
 | `ShapeFactory` | 已实现内置类型名到构造器的集中映射，`box` 报未知类型 | 将内置注册替换为开放的类型提供者注册 |
 | `cli/CommandFactory` | 尚未实现，后续负责命令名到命令类的集中映射 | 将内置命令注册替换为可扩展注册 |
 
-`ShapeFactory` 当前接收正规化的属性表，为几何提供零值初始状态；CLI 中必填位置参数与数量的检查由后续 `CommandFactory` 完成。不能将对象 API 的默认字段理解为最终 CLI 允许省略题目必填参数。图形属性名的白名单校验不负责选择图形实现。
+`ShapeFactory` 使用 `ShapeDefinition` 统一保存构造器、位置参数名称和可选样式。对象 API 接收正规化属性表，几何缺省为零；CLI 的参数检查将复用这些定义。图形属性名的白名单校验不负责选择图形实现。
 
 ### 模块依赖方向
 
@@ -221,7 +223,7 @@ Shape
 | `infrastructure` | 自身模块、应用层接口与工厂、领域公开对象 | CLI、领域内部树修改能力 |
 | `Main` | 全部模块 | 不承担业务约束 |
 
-`SvgStore` 接口由应用层拥有。未来 `XmlSvgStore` 实现接口并由 `Main` 注入 `EditorSession`，因此应用层无需反向导入基础设施。CLI 只接收命令执行结果，不直接读取或修改文档结构。
+`SvgStore` 接口由应用层拥有，`XmlSvgStore` 实现该接口，因此应用层无需反向导入基础设施。CLI 只接收命令执行结果，不直接读取或修改文档结构。文件模块可依赖 Node 文件系统及 `@xmldom/xmldom`，这些依赖不得进入领域层或应用层。
 
 违反表中规则的导入应当修正或记录为待处理项。当前 `tests/integration/Architecture.test.ts` 检查生产代码的常规静态导入，以及一个类一个文件、类名等于文件名的约定；它不是动态模块加载或全部语义依赖的分析器。
 
@@ -240,7 +242,16 @@ Shape
 | 无文档时的命令 | 除 init/read 外，当前命令对象均要求已有文档，包括 help |
 | 移动/缩放实现 | 直接修改叶子几何数据，暂不生成组的 transform |
 
-后续 SVG 读写的实施规则：先解析临时结构并收集全部显式 ID，再补齐缺失 ID，避免与后方显式 ID 冲突；整份文档成功才替换当前状态并输出警告。文本应作为 XML 子文本保存并转义，缺省样式不补写。对当前支持范围之外的元素、属性、坐标单位或 transform 应明确失败，不能静默丢弃。该输入范围是项目选择，需要在文件功能交付时补充具体说明与样例验证。
+SVG 导入先解析临时结构并收集全部显式 ID，再补齐缺失 ID，避免与后方显式 ID 冲突；整份文档成功才替换当前状态并输出警告。文字作为 XML 子文本保存并转义，保留 Unicode、空白和实体内容；CR 用字符引用写出，避免读回时被 XML 换行规范化为 LF。缺省样式不补写。
+
+当前 SVG 文件支持范围如下：
+
+- 支持六种内置图形、任意嵌套组和题目规定的属性；忽略 XML 注释，CDATA 与实体转换为文字内容。
+- 接受完整 SVG 命名空间、正确绑定的前缀，或整份省略命名空间的简化文件；拒绝混入其他命名空间。
+- 根节点接受 width、height、viewBox、version 和命名空间声明。尺寸接受数字或 px；未提供尺寸时采用对应 viewBox 尺寸，否则缺省为 800×600。
+- viewBox 必须从 `(0,0)` 开始且与画布尺寸一致。百分比、其他单位、transform、CSS、路径、tspan 及其他未支持属性明确报错，避免静默改变外观。没有承诺支持完整 SVG 标准。
+- 拒绝 DTD 和非 XML 声明的处理指令；XML 解析器的警告、错误均终止导入，不自动修复损坏文件。
+- 保存先生成完整 XML，再在目标同目录写临时文件并 rename 替换；失败保持原文件。目标须为普通文件或新路径，目录、符号链接和不存在的父目录不能写入；缺失目录不会自动创建。
 
 ### 变化点假设
 
@@ -269,6 +280,7 @@ Shape
 4. 测试构造了“组内前一个图形已在副本中移动，后一个图形数值溢出”的失败情形，确认实时文档和历史都不变。
 5. 修正图形构造器 Map 的类型推断，显式将返回类型约束为 `Shape`，通过严格类型检查。
 6. 依赖检查最初尝试调用编译器 API；已安装编译器的根入口不提供旧式 AST API，因此改为针对当前静态 import 语法的源码检查，避免绑定未承诺的编译器接口。
+7. 接入 `@xmldom/xmldom`，以真实文件测试验证六种图形、缺失 ID 与失败状态。新增 CR 实体回归场景后发现普通序列化会令读回内容变为 LF，改为输出字符引用，并重新通过测试。
 
 以上是实际发生的设计和验证过程。后续代码变更应随开发推进同步提交。
 
@@ -291,9 +303,9 @@ Shape
 
 ### 模块划分
 
-当前源码按 `domain`、`application`、`cli` 组织，`infrastructure/svg` 保留目录。核心类均独立成文件，与类名一致。与初始方案相比：增加 `Geometry` 统一数值约束、增加 `domain/internal` 管理树修改能力、增加 `ReadDocumentResult` 表达导入警告；`Main` 目前运行演示，尚未启动 REPL。
+当前源码按 `domain`、`application`、`cli`、`infrastructure/svg` 组织。核心类均独立成文件，与类名一致。与初始方案相比：增加 `Geometry` 统一数值约束、增加 `domain/internal` 管理树修改能力、增加 `ReadDocumentResult` 表达导入警告、增加 `ShapeDefinition` 统一创建参数元数据；`Main` 目前运行演示，尚未启动 REPL。
 
-初始方案中的输入解析和 XML 实现明确列为后续任务，没有用空类伪装已完成模块。
+初始方案中的输入解析仍列为后续任务，XML 实现已通过真实文件测试，没有用空类伪装已完成模块。
 
 ### 依赖方向
 
@@ -322,7 +334,7 @@ node dist/Main.js
 
 类型检查开启 strict、未检查索引访问、精确可选属性、显式 override 和未使用成员检查。`package-lock.json` 锁定依赖；构建只输出生产源码，测试参与类型检查但不混入 dist。
 
-本次在 Node.js 24.14.0 环境中通过类型检查、全部 30 项测试和构建；源码演示与编译后的演示均成功展示整组移动、撤销和重做。
+本次在 Node.js 24.14.0 环境中通过类型检查、全部 40 项测试和构建；核心演示已验证整组移动、撤销和重做。
 
 当前测试覆盖以下风险：
 
@@ -338,4 +350,4 @@ node dist/Main.js
 | 应用协作 | 命令串行执行，延迟保存完成前不开始下一编辑，队列遇错后继续，命令对象不能重复执行 |
 | 架构约束 | 常规静态导入方向、内部能力隔离、一类一文件与命名 |
 
-测试中的内存存储适配器只验证应用层协议，不构成真实 SVG 文件往返验证。完整 Phase 1 验收还需补充 REPL 参数与注释解析、真实 XML 编解码、缺 ID 补全、错误转义和浏览器预览，并回放作业给定会话。PlantUML 源码已提供，尚未使用渲染器校验图像。
+内存适配器验证应用层协议，`tests/infrastructure` 另行验证真实 SVG 编解码、缺失 ID、文字转义和磁盘保存。完整 Phase 1 验收还需补充 REPL 参数与注释解析、命令回放和浏览器预览。PlantUML 源码已提供，尚未使用渲染器校验图像。

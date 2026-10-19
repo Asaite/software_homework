@@ -1,6 +1,6 @@
 # SVG 编辑器
 
-Lab 1 Phase 1 的 TypeScript 面向对象实现。当前增量完成核心图形模型、Composite、Command、快照撤销和存储接口；命令通过对象 API 使用，尚未接入交互式 CLI 和实际 SVG 文件读写。
+Lab 1 Phase 1 的 TypeScript 面向对象实现。已完成核心图形模型、Composite、Command、快照撤销及实际 SVG 文件读写；命令目前通过对象 API 使用，交互式 CLI 和字符串命令解析正在接入。
 
 私有仓库：[Asaite/software_homework](https://github.com/Asaite/software_homework)。
 

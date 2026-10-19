@@ -12,6 +12,10 @@ test("production imports follow module rules and do not expose domain internals 
     cli: ["application", "cli"],
     infrastructure: ["domain", "application", "infrastructure"],
   };
+  const external: Readonly<Record<string, readonly string[]>> = {
+    cli: ["node:readline", "node:stream"],
+    infrastructure: ["@xmldom/xmldom", "node:fs", "node:fs/promises", "node:path"],
+  };
   const pending = [root];
   while (pending.length > 0) {
     const directory = pending.pop();
@@ -27,7 +31,10 @@ test("production imports follow module rules and do not expose domain internals 
         const specifier = declaration[1];
         assert.ok(specifier);
         if (module === "Main.ts") continue;
-        assert.ok(specifier.startsWith("."), `${path} imports an external dependency: ${specifier}`);
+        if (!specifier.startsWith(".")) {
+          assert.ok(external[module]?.includes(specifier), `${path} imports an external dependency: ${specifier}`);
+          continue;
+        }
         const target = relative(root, resolve(directory, specifier));
         const targetModule = target.split("/")[0] ?? "";
         assert.ok(allowed[module]?.includes(targetModule), `${path} -> ${specifier}`);
