@@ -1,0 +1,27 @@
+@startuml
+!pragma layout smetana
+skinparam componentStyle rectangle
+skinparam shadowing false
+skinparam backgroundColor #FFFFFF
+skinparam defaultFontName SansSerif
+top to bottom direction
+
+component "Main\nComposition root" as Main #E2E8F0
+component "cli\nREPL / parser / presenter" as CLI #DBEAFE
+package "application" #EFF6FF {
+  component "Commands / EditorSession\nCommandHistory / ShapeFactory" as App #DBEAFE
+  rectangle "<<interface>>\nSvgStore" as Store #FFFFFF
+}
+component "domain\nShapes / Composite / snapshots" as Domain #DCFCE7
+component "infrastructure.svg\nXML / atomic file writes" as Infra #FEF3C7
+
+Main --> CLI
+Main --> App
+Main --> Infra : inject
+CLI --> App
+App --> Domain
+App --> Store : read / write
+Infra ..|> Store
+Infra --> App : ShapeFactory
+Infra --> Domain
+@enduml

@@ -68,7 +68,10 @@
 │   └── fixtures/               # 测试适配器、CLI 子进程、典型会话和 SVG
 ├── examples/                   # 可回放流程图脚本与实际导出文件
 └── doc/
-    └── README.md
+    ├── README.md
+    ├── architecture.puml       # 可编辑的组件图源文件
+    ├── architecture.png        # PlantUML 本地渲染结果
+    └── flowchart-preview.jpg   # 实际浏览器渲染截图
 ```
 
 | 模块 | 职责 | 不承担的职责 |
@@ -81,30 +84,11 @@
 
 `Main` 将共享的 `ShapeFactory` 注入会话、命令工厂和 `XmlSvgStore`，并启动 `CliApplication`。所有计划中的核心模块均已有实际实现，不通过空类伪装已完成模块。
 
-以下 PlantUML 表示当前组件关系：
+以下组件图由 [PlantUML 源码](architecture.puml) 在本地渲染，箭头表示源码依赖，虚线三角表示实现接口：
 
-```plantuml
-@startuml
-component "Main\n对象组装" as Main
-component "cli\n解析与输出" as CLI
-package "application" {
-  component "命令 会话 历史 工厂" as App
-  interface "SvgStore" as Store
-}
-component "domain\n图形树与约束" as Domain
-component "infrastructure.svg\nXML 与文件读写" as Infra
+![模块组件与依赖方向](architecture.png)
 
-Main --> CLI
-Main --> App
-Main --> Infra : 注入适配器
-CLI --> App
-App --> Domain
-App --> Store : 通过接口读写
-Infra ..|> Store
-Infra ..> App : 复用 ShapeFactory
-Infra ..> Domain
-@enduml
-```
+源码采用 `!pragma layout smetana`，不依赖外部 Graphviz。PNG 已提交，阅读文档不需要安装 Java 或 PlantUML；需要更新图时，可在本机执行 `java -jar plantuml.jar -tpng doc/architecture.puml`。
 
 ### 核心对象与树约束
 
@@ -287,6 +271,8 @@ SVG 导入先解析临时结构并收集全部显式 ID，再补齐缺失 ID，�
 
 ### 架构讨论
 
+本项目使用 Codex 协作完成。用户先要求分析作业并审定架构，再授权实现核心、连接仓库和分阶段补全功能；关键设计与纠正记录如下。
+
 1. 将命令输入、编辑用例、图形模型和 XML 文件操作分开，明确应用层持有存储接口。
 2. 讨论撤销方案时，没有使用“位移取负、缩放取倒数”作为通用恢复机制。分组涉及多个原父容器及顺序，浮点乘除也不能保证原值精确恢复，因此选择前后快照。
 3. 识别组样式与几何操作的区别：移动和缩放递归到子图形，设置组 fill 则保留样式继承语义。
@@ -295,7 +281,7 @@ SVG 导入先解析临时结构并收集全部显式 ID，再补齐缺失 ID，�
 
 1. 工程原本为空目录，建立严格 TypeScript 配置、依赖锁文件和本地 Git 仓库。
 2. 实现 `Geometry` 以统一数值白名单和整批校验；用内部 Symbol 能力协调父子链接，避免外层直接修改数组。
-3. 将十九条命令落为独立类；文件命令先通过接口与内存测试适配器验证流程，实际 XML 适配器留待下一增量。
+3. 命令框架阶段将十九条命令落为独立类，先通过接口和内存适配器验证文件边界，随后补上真实 XML 适配器。
 4. 测试构造了“组内前一个图形已在副本中移动，后一个图形数值溢出”的失败情形，确认实时文档和历史都不变。
 5. 修正图形构造器 Map 的类型推断，显式将返回类型约束为 `Shape`，通过严格类型检查。
 6. 依赖检查最初尝试调用编译器 API；已安装编译器的根入口不提供旧式 AST API，因此改为针对当前静态 import 语法的源码检查，避免绑定未承诺的编译器接口。
@@ -303,6 +289,7 @@ SVG 导入先解析临时结构并收集全部显式 ID，再补齐缺失 ID，�
 8. 将词法、参数检查与命令名分派分开，保留引号元数据。测试验证颜色不会被注释规则截断、文字 `"in"` 不会变成后缀，并通过真实会话状态验证全部十九个命令名。
 9. 将最初演示移到 Demo，以 Main 组装实际 REPL。通过真实子进程回放作业完整会话和两节点流程图；测试使用临时目录，避免污染工程或覆盖用户文件。
 10. 验收实际终端提示符、Ctrl+D/Ctrl+C 退出，并在浏览器检查 CLI 导出的流程图。补充导入边界：拒绝把文字写成 text 属性，拒绝损坏 UTF-8，避免静默丢失或替换内容。
+11. 使用独立临时运行环境在本地渲染 PlantUML 组件图，实际检查 PNG。将 SVG、解析、REPL 三个增量分别验证、提交和推送，最后补充需求对应表；渲染工具不进入应用运行依赖。
 
 以上是实际发生的设计和验证过程。后续代码变更应随开发推进同步提交。
 
@@ -319,7 +306,16 @@ SVG 导入先解析临时结构并收集全部显式 ID，再补齐缺失 ID，�
 
 `origin` 为 `git@github.com:Asaite/software_homework.git`，当前分支为 `main`。提交身份与独立 SSH 密钥仅在本仓库配置；因为当前网络的 22 端口连接被关闭，项目通过 `ssh.github.com:443` 连接，并核验 GitHub 官方公布的主机公钥。密钥与机器专属配置均不进入版本库。
 
-后续增量按 SVG 读写、命令解析、REPL 和验收文档分阶段提交推送。`final` tag 应指向所有验收完成后的提交，并在课程截止时间前推送；具体截止日期以课程通知为准。
+本次后续增量按实际完成顺序提交并推送：
+
+| 阶段 | 提交 | 结果 |
+| --- | --- | --- |
+| SVG 读写 | `aa4ec61` | XML 导入、自动 ID、Visitor 导出、原子文件保存；40 项测试 |
+| 命令解析 | `182f920` | 引号、颜色、in 后缀、十九条命令与参数定义；48 项测试 |
+| 交互式 REPL | `51af9b8` | 终端、管道、完整会话回放、浏览器示例；55 项测试 |
+| 最终验收文档 | `docs: finalize architecture diagram and acceptance evidence` | 组件图、验收对应表、示例预览与最终记录 |
+
+最终交付使用带注释的 `final` tag 定位验收提交，并同步推送到远程。提交与 tag 均使用实际时间；课程截止日期以课程通知为准。
 
 ## 一致性自查
 
@@ -358,7 +354,9 @@ node dist/Main.js < examples/flowchart.txt
 
 类型检查开启 strict、未检查索引访问、精确可选属性、显式 override 和未使用成员检查。`package-lock.json` 锁定依赖；构建只输出生产源码，测试参与类型检查但不混入 dist。
 
-本次在 Node.js 24.14.0 环境中通过类型检查、全部 55 项测试和构建。真实终端验证提示符与退出行为，真实 CLI 子进程回放典型会话和流程图，浏览器验证 examples/flowchart.svg 的两个节点、中文文字和连线。
+本次在 Node.js 24.14.0 环境中通过类型检查、全部 55 项测试和构建。真实终端验证提示符与退出行为，真实 CLI 子进程回放典型会话和流程图；另外直接执行编译后的 `dist/Main.js`，确认能保存 UTF-8 SVG 且没有 stderr。浏览器验证 [examples/flowchart.svg](../examples/flowchart.svg) 的两个节点、中文文字和连线，[实际预览截图](flowchart-preview.jpg) 随文档保存。
+
+组件图由 PlantUML 1.2026.9 的 Smetana 引擎在本地渲染，PNG 已检查文字与边界，源文件和成图均已纳入 Git。
 
 当前测试覆盖以下风险：
 
@@ -375,4 +373,30 @@ node dist/Main.js < examples/flowchart.txt
 | 交互与回放 | 真实子进程、全部十九个命令名、CRLF/EOF、带空格路径、连续错误后继续、TTY 提示符 |
 | 架构约束 | 常规静态导入方向、内部能力隔离、一类一文件与命名 |
 
-内存适配器验证应用层协议，`tests/infrastructure` 验证真实 SVG 编解码、缺失 ID、文字转义和磁盘保存，`tests/integration/CliReplay.test.ts` 回放作业会话。测试断言实际文档、顺序、父容器和文件内容，不只检查命令能否构造。当前没有覆盖完整 SVG 标准、插件系统或大文档性能；它们不属于本阶段支持范围。PlantUML 源码已提供，可视图另行生成。
+### 需求验收对应表
+
+| 要求 | 验证证据 | 结果 |
+| --- | --- | --- |
+| init 默认尺寸、显式尺寸与新文档 | Commands、CommandParser、CliReplay 测试 | 通过 |
+| read、六种图形、缺 ID 警告及碰撞规避 | SvgCodec 的作业 other.svg、后方显式 ID 和重复 ID 场景 | 通过 |
+| save 与无参数保存、浏览器可打开 | XmlSvgStore 的真实路径与覆盖保存；实际流程图预览 | 通过 |
+| canvas 查询不入历史、修改阻断历史 | Commands 的查询和 IO 屏障场景 | 通过 |
+| create 六种参数与可选 in、缺省样式 | CommandParser 全类型创建；SvgCodec 不补写样式 | 通过 |
+| delete 子树与单次撤销 | Commands 删除整组后恢复父子结构和顺序 | 通过 |
+| move、scale 对叶子和嵌套组统一操作 | Shapes、SvgDocument、Commands 的几何与快照场景 | 通过 |
+| scale 非正数、非法数值不改状态 | Shapes 的非法系数与 Commands 的局部副本溢出 | 通过 |
+| set 白名单、文字内容、组样式继承 | Shapes、SvgDocument 和典型会话 | 通过 |
+| group 相对顺序、跨父级及祖先后代拒绝 | SvgDocument 与 Commands 分组/撤销场景 | 通过 |
+| ungroup 原位置替换、禁止根级组 | SvgDocument 的嵌套解组和 CliReplay 错误表 | 通过 |
+| addto 追加、禁止环 | SvgDocument 的重挂载和自包含拒绝 | 通过 |
+| front/back 仅改变同级顺序、可撤销 | SvgDocument 与 Commands 的 z-order 场景 | 通过 |
+| tree 全文档/子树、内联几何 | Commands 子树显示和 CliReplay 全文档 | 通过 |
+| show 属性和父容器、help 全部语法 | Commands、CommandParser 与 CliReplay | 通过 |
+| undo/redo 单位、分支清空与 IO 屏障 | Commands、StoragePort、XmlSvgStore | 通过 |
+| svg>、逐行、注释、双引号及错误继续 | CliApplication、CommandTokenizer、实际 TTY | 通过 |
+| 统一 error:、失败不改文档或历史 | ConsolePresenter、事务溢出、真实失败 IO、CliReplay 错误表 | 通过 |
+| 作业典型会话与两节点流程图 | tests/fixtures/typical-session.txt、examples/flowchart.txt 的真实子进程回放 | 通过 |
+| TypeScript OOP、Command、Composite、目录依赖 | 核心类、多态实现、Architecture 静态检查和一致性自查 | 通过 |
+| 架构图、过程、自查、质量说明、阶段提交 | 本文、architecture.puml/png 和 Git 历史 | 完成 |
+
+测试文件位于 `tests/domain`、`tests/application`、`tests/cli`、`tests/infrastructure` 和 `tests/integration`。内存适配器验证应用层协议，真实文件与 CLI 子进程测试补足外部边界；断言覆盖实际文档、顺序、父容器和文件内容，不只检查命令能否构造。当前没有覆盖完整 SVG 标准、插件系统或大文档性能；它们不属于本阶段支持范围。
