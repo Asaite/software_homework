@@ -89,6 +89,7 @@ test("duplicate IDs and unsupported content are rejected explicitly", () => {
     ['<svg><path id="p"/></svg>', /unknown shape type: path/],
     ['<svg><g transform="translate(1,2)"/></svg>', /unknown attribute: transform/],
     ['<svg><text><tspan>label</tspan></text></svg>', /not a container/],
+    ['<svg><text text="attribute is not content"/></svg>', /must be a child text node/],
     ['<svg><rect>unexpected</rect></svg>', /unexpected text/],
     ['<svg>unexpected</svg>', /unexpected text/],
     ['<svg><g><?instruction value?></g></svg>', /unsupported SVG node/],

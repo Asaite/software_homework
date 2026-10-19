@@ -17,7 +17,7 @@ export class XmlSvgStore implements SvgStore {
 
   async read(path: string): Promise<ReadDocumentResult> {
     let source: string;
-    try { source = await readFile(path, "utf8"); }
+    try { source = new TextDecoder("utf-8", { fatal: true }).decode(await readFile(path)); }
     catch { throw new ApplicationError(`cannot read file: ${path}`); }
     return this.#reader.parse(source);
   }

@@ -90,6 +90,7 @@ export class SvgReader {
       const attributes: Record<string, string> = {};
       for (const attribute of Array.from(element.attributes)) {
         if (attribute.name === "id" || attribute.namespaceURI === "http://www.w3.org/2000/xmlns/") continue;
+        if (attribute.name === "text") throw new ApplicationError("SVG text content must be a child text node");
         attributes[attribute.name] = attribute.value;
       }
       const id = assigned.get(element);

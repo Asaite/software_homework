@@ -30,7 +30,7 @@ test("production imports follow module rules and do not expose domain internals 
       for (const declaration of imports) {
         const specifier = declaration[1];
         assert.ok(specifier);
-        if (module === "Main.ts") continue;
+        if (module === "Main.ts" || module === "Demo.ts") continue;
         if (!specifier.startsWith(".")) {
           assert.ok(external[module]?.includes(specifier), `${path} imports an external dependency: ${specifier}`);
           continue;

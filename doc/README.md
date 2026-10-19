@@ -2,7 +2,7 @@
 
 本项目采用 TypeScript 和面向对象方式实现 Lab 1 Phase 1。领域层维护图形树和约束，应用层通过 Command 执行操作，外层负责终端交互与 SVG 文件读写。Command 和 Composite 是核心模式，快照负责撤销恢复，Visitor 支持按具体图形生成显示信息。
 
-当前增量完成工程配置、六种图形、图形树、十九种命令对象、快照历史、真实 SVG 文件读写和命令解析。导入会预扫描显式 ID，再为缺失 ID 分配名称并返回警告。命令可通过对象 API 或 `CommandParser` 调用；`npm run demo` 仍是固定流程演示。交互式 REPL 尚未接入，当前增量不是 Phase 1 最终完成版本。
+当前实现包含六种图形、十九条命令、快照历史、SVG 文件读写、命令解析和交互式 REPL。`npm run cli` 启动编辑器，也可从命令文件回放；导出的 SVG 可直接在浏览器打开。`npm run demo` 保留最初的固定流程演示。支持范围按本阶段要求限定，插件和 box 留在后续阶段。
 
 ## 架构方案
 
@@ -15,8 +15,10 @@
 ├── tsconfig.json                # 源码与测试的严格类型检查
 ├── tsconfig.build.json          # 仅编译源码到 dist
 ├── src/
-│   ├── Main.ts                  # 组装对象并运行演示
+│   ├── Main.ts                  # 组装 REPL、会话与文件适配器
+│   ├── Demo.ts                  # 独立的固定流程演示
 │   ├── cli/
+│   │   ├── CliApplication.ts    # REPL、提示符、逐行等待执行
 │   │   ├── CommandTokenizer.ts  # 空白、注释行与双引号
 │   │   ├── CommandToken.ts      # 保留参数值和是否带引号
 │   │   ├── CommandArguments.ts  # 参数数量与数值语法
@@ -58,11 +60,13 @@
 │   └── infrastructure/
 │       └── svg/                # SvgReader、SvgWriter、SvgWriterVisitor、XmlSvgStore
 ├── tests/
+│   ├── cli/                    # 词法、语法、REPL、终端输出
 │   ├── domain/                 # 几何、树约束、快照
 │   ├── application/            # 命令事务、历史、显示
 │   ├── integration/            # 存储接口协作、依赖规则
 │   ├── infrastructure/         # 真实 XML 编解码、文件事务
-│   └── fixtures/               # MemorySvgStore 测试适配器
+│   └── fixtures/               # 测试适配器、CLI 子进程、典型会话和 SVG
+├── examples/                   # 可回放流程图脚本与实际导出文件
 └── doc/
     └── README.md
 ```
@@ -71,13 +75,13 @@
 | --- | --- | --- |
 | `domain` | 封装图形状态、几何行为、样式和树结构约束 | 读取终端、文件操作、XML 解析、撤销栈 |
 | `application` | 执行命令、管理会话及历史、生成显示结果、定义存储接口 | 直接打印、绑定具体 XML 库或文件系统 |
-| `cli` | 字符串命令解析和终端输出；REPL 待接入 | 计算几何、直接修改树结构 |
+| `cli` | 逐行读取、命令解析、提示符和终端输出 | 计算几何、直接修改树结构 |
 | `infrastructure/svg` | XML 编解码、文件读取和原子保存 | 命令业务、终端交互 |
-| `Main` | 创建并连接对象，运行入口流程 | 图形业务规则 |
+| `Main` / `Demo` | 创建并连接对象，运行入口流程 | 图形业务规则 |
 
-后续在 `cli` 中增加 `CliApplication` 并接入入口。解析器和 SVG 文件适配器均已实现，不通过空类伪装已完成模块。
+`Main` 将共享的 `ShapeFactory` 注入会话、命令工厂和 `XmlSvgStore`，并启动 `CliApplication`。所有计划中的核心模块均已有实际实现，不通过空类伪装已完成模块。
 
-以下 PlantUML 表示组件关系；Main 对文件适配器的注入将在 CLI 接入时完成：
+以下 PlantUML 表示当前组件关系：
 
 ```plantuml
 @startuml
@@ -92,7 +96,7 @@ component "infrastructure.svg\nXML 与文件读写" as Infra
 
 Main --> CLI
 Main --> App
-Main ..> Infra : 后续注入
+Main --> Infra : 注入适配器
 CLI --> App
 App --> Domain
 App --> Store : 通过接口读写
@@ -220,6 +224,14 @@ Shape
 
 `CommandParser` 将词法分析与工厂组合。只有整行第一个非空白字符为 `#` 时才是注释，颜色值不受影响；不支持行尾注释。双引号保留空白并允许空字符串，支持 `\"` 和 `\\` 转义，其他反斜杠保持原样。`create text` 内容必须带双引号。参数保留是否带引号的信息，只有未加引号的尾缀 `in <containerId>` 才声明父容器；文字 `"in"` 不会被误判。未知命令、参数数量错误和未闭合引号在执行前失败，不触碰会话历史。
 
+### 交互与脚本回放
+
+`CliApplication` 通过 Node readline 逐行读取，并等待本条命令的解析、执行和异步读写结束后再处理下一条。终端模式显示 `svg>`；管道模式省略提示符，不丢弃最后没有换行的命令。空行和注释不生成命令，也不改变历史。Ctrl+D 或 Ctrl+C 退出。
+
+`ConsolePresenter` 将成功和警告写到 stdout，将带 `error:` 前缀的错误写到 stderr；错误信息中的 CR/LF 合并为空格，保持一行一条。单条错误后继续下一行，正常 EOF 的退出码为 0；输入流等不可恢复错误由 Main 报告并设置非零退出码。所有输出流都可注入，测试不需要修改全局 console。
+
+`help` 覆盖全部命令及六种 create 语法。根据题目“未 read/init 的其他命令报错”的约定，当前 help 也要求已有文档；启动后先 init 或 read。合法空操作仍算一次编辑。支持 `init 400`，其高度采用缺省 600；canvas 修改必须同时提供宽高。
+
 ### 模块依赖方向
 
 | 发起模块 | 允许依赖 | 禁止依赖 |
@@ -228,7 +240,7 @@ Shape
 | `application` | 自身模块、领域公开对象和接口 | CLI、具体文件适配器、领域内部树修改能力 |
 | `cli` | 自身模块、应用层 | 直接操作领域结构、具体 SVG 读写实现 |
 | `infrastructure` | 自身模块、应用层接口与工厂、领域公开对象 | CLI、领域内部树修改能力 |
-| `Main` | 全部模块 | 不承担业务约束 |
+| `Main` / `Demo` | 全部模块 | 不承担业务约束 |
 
 `SvgStore` 接口由应用层拥有，`XmlSvgStore` 实现该接口，因此应用层无需反向导入基础设施。CLI 只接收命令执行结果，不直接读取或修改文档结构。文件模块可依赖 Node 文件系统及 `@xmldom/xmldom`，这些依赖不得进入领域层或应用层。
 
@@ -253,7 +265,7 @@ SVG 导入先解析临时结构并收集全部显式 ID，再补齐缺失 ID，�
 
 当前 SVG 文件支持范围如下：
 
-- 支持六种内置图形、任意嵌套组和题目规定的属性；忽略 XML 注释，CDATA 与实体转换为文字内容。
+- 读取 UTF-8 文件，非法 UTF-8 不会被静默替换。支持六种内置图形、任意嵌套组和题目规定的属性；忽略 XML 注释，CDATA 与实体转换为文字内容。文字必须存为子文本，不能写成 text 属性。
 - 接受完整 SVG 命名空间、正确绑定的前缀，或整份省略命名空间的简化文件；拒绝混入其他命名空间。
 - 根节点接受 width、height、viewBox、version 和命名空间声明。尺寸接受数字或 px；未提供尺寸时采用对应 viewBox 尺寸，否则缺省为 800×600。
 - viewBox 必须从 `(0,0)` 开始且与画布尺寸一致。百分比、其他单位、transform、CSS、路径、tspan 及其他未支持属性明确报错，避免静默改变外观。没有承诺支持完整 SVG 标准。
@@ -289,6 +301,8 @@ SVG 导入先解析临时结构并收集全部显式 ID，再补齐缺失 ID，�
 6. 依赖检查最初尝试调用编译器 API；已安装编译器的根入口不提供旧式 AST API，因此改为针对当前静态 import 语法的源码检查，避免绑定未承诺的编译器接口。
 7. 接入 `@xmldom/xmldom`，以真实文件测试验证六种图形、缺失 ID 与失败状态。新增 CR 实体回归场景后发现普通序列化会令读回内容变为 LF，改为输出字符引用，并重新通过测试。
 8. 将词法、参数检查与命令名分派分开，保留引号元数据。测试验证颜色不会被注释规则截断、文字 `"in"` 不会变成后缀，并通过真实会话状态验证全部十九个命令名。
+9. 将最初演示移到 Demo，以 Main 组装实际 REPL。通过真实子进程回放作业完整会话和两节点流程图；测试使用临时目录，避免污染工程或覆盖用户文件。
+10. 验收实际终端提示符、Ctrl+D/Ctrl+C 退出，并在浏览器检查 CLI 导出的流程图。补充导入边界：拒绝把文字写成 text 属性，拒绝损坏 UTF-8，避免静默丢失或替换内容。
 
 以上是实际发生的设计和验证过程。后续代码变更应随开发推进同步提交。
 
@@ -305,15 +319,15 @@ SVG 导入先解析临时结构并收集全部显式 ID，再补齐缺失 ID，�
 
 `origin` 为 `git@github.com:Asaite/software_homework.git`，当前分支为 `main`。提交身份与独立 SSH 密钥仅在本仓库配置；因为当前网络的 22 端口连接被关闭，项目通过 `ssh.github.com:443` 连接，并核验 GitHub 官方公布的主机公钥。密钥与机器专属配置均不进入版本库。
 
-当前尚未完成完整 REPL 和 SVG 文件读写，因此未创建 `final` tag；应在全部作业功能验收后，再于截止时间前创建并推送该 tag。
+后续增量按 SVG 读写、命令解析、REPL 和验收文档分阶段提交推送。`final` tag 应指向所有验收完成后的提交，并在课程截止时间前推送；具体截止日期以课程通知为准。
 
 ## 一致性自查
 
 ### 模块划分
 
-当前源码按 `domain`、`application`、`cli`、`infrastructure/svg` 组织。核心类均独立成文件，与类名一致。与初始方案相比：增加 `Geometry` 统一数值约束、增加 `domain/internal` 管理树修改能力、增加 `ReadDocumentResult` 表达导入警告、增加 `ShapeDefinition` 统一创建参数元数据；`Main` 目前运行演示，尚未启动 REPL。
+当前源码按 `domain`、`application`、`cli`、`infrastructure/svg` 组织。核心类均独立成文件，与类名一致。与初始方案相比：增加 `Geometry` 统一数值约束、增加 `domain/internal` 管理树修改能力、增加 `ReadDocumentResult` 表达导入警告、增加 `ShapeDefinition` 统一创建参数元数据；增加 CommandToken/CommandArguments 保留引号信息并集中检查参数，将固定演示独立为 Demo。上述差异已记入修订记录。
 
-输入解析和 XML 实现已通过测试，交互式入口仍列为后续任务，没有用空类伪装已完成模块。
+输入解析、XML 和交互式入口均已接入并通过测试，没有空实现或“未实现”占位命令。
 
 ### 依赖方向
 
@@ -337,12 +351,14 @@ npm run typecheck
 npm test
 npm run build
 npm run demo
-node dist/Main.js
+npm run cli
+npm run cli < examples/flowchart.txt
+node dist/Main.js < examples/flowchart.txt
 ```
 
 类型检查开启 strict、未检查索引访问、精确可选属性、显式 override 和未使用成员检查。`package-lock.json` 锁定依赖；构建只输出生产源码，测试参与类型检查但不混入 dist。
 
-本次在 Node.js 24.14.0 环境中通过类型检查、全部 48 项测试和构建；核心演示已验证整组移动、撤销和重做。
+本次在 Node.js 24.14.0 环境中通过类型检查、全部 55 项测试和构建。真实终端验证提示符与退出行为，真实 CLI 子进程回放典型会话和流程图，浏览器验证 examples/flowchart.svg 的两个节点、中文文字和连线。
 
 当前测试覆盖以下风险：
 
@@ -356,6 +372,7 @@ node dist/Main.js
 | 历史管理 | 一条编辑一个单元、查询不记录、失败不清空 redo、新编辑清空 redo |
 | 文档边界 | init、画布修改、成功 read/save 设置屏障；失败 IO 不改文档和路径 |
 | 应用协作 | 命令串行执行，延迟保存完成前不开始下一编辑，队列遇错后继续，命令对象不能重复执行 |
+| 交互与回放 | 真实子进程、全部十九个命令名、CRLF/EOF、带空格路径、连续错误后继续、TTY 提示符 |
 | 架构约束 | 常规静态导入方向、内部能力隔离、一类一文件与命名 |
 
-内存适配器验证应用层协议，`tests/infrastructure` 另行验证真实 SVG 编解码、缺失 ID、文字转义和磁盘保存。完整 Phase 1 验收还需补充 REPL 参数与注释解析、命令回放和浏览器预览。PlantUML 源码已提供，尚未使用渲染器校验图像。
+内存适配器验证应用层协议，`tests/infrastructure` 验证真实 SVG 编解码、缺失 ID、文字转义和磁盘保存，`tests/integration/CliReplay.test.ts` 回放作业会话。测试断言实际文档、顺序、父容器和文件内容，不只检查命令能否构造。当前没有覆盖完整 SVG 标准、插件系统或大文档性能；它们不属于本阶段支持范围。PlantUML 源码已提供，可视图另行生成。

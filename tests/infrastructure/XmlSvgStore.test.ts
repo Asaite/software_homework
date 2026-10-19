@@ -42,7 +42,9 @@ test("failed file reads and writes preserve document, redo and the last path", a
   const session = new EditorSession(factory, new XmlSvgStore(factory));
   const saved = join(directory, "valid.svg");
   const invalid = join(directory, "invalid.svg");
+  const invalidEncoding = join(directory, "invalid-encoding.svg");
   await writeFile(invalid, '<svg><rect id="r"/><circle id="r"/></svg>');
+  await writeFile(invalidEncoding, Buffer.from([0xff, 0xfe, 0x3c]));
   await session.execute(new InitCommand());
   await session.execute(new CreateCommand("rect", "r", { x: 10 }));
   await session.execute(new SaveCommand(saved));
@@ -50,6 +52,7 @@ test("failed file reads and writes preserve document, redo and the last path", a
   await session.execute(new UndoCommand());
   await assert.rejects(session.execute(new ReadCommand(join(directory, "missing.svg"))), /cannot read file:/);
   await assert.rejects(session.execute(new ReadCommand(invalid)), /id already exists: r/);
+  await assert.rejects(session.execute(new ReadCommand(invalidEncoding)), /cannot read file:/);
   await assert.rejects(session.execute(new SaveCommand(directory)), /cannot write file:/);
   await assert.rejects(session.execute(new SaveCommand(join(directory, "missing", "out.svg"))), /cannot write file:/);
   assert.equal(session.filePath, saved);

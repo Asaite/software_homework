@@ -11,7 +11,9 @@
     "typecheck": "tsc --noEmit",
     "build": "tsc -p tsconfig.build.json",
     "test": "node --import tsx --test tests/**/*.test.ts",
-    "demo": "tsx src/Main.ts"
+    "cli": "tsx src/Main.ts",
+    "start": "node dist/Main.js",
+    "demo": "tsx src/Demo.ts"
   },
   "devDependencies": {
     "@types/node": "^22.20.5",
