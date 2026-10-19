@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { test } from "node:test";
 import { EditorSession } from "../../src/application/EditorSession.js";
 import { ShapeFactory } from "../../src/application/ShapeFactory.js";
+import { CanvasCommand } from "../../src/application/commands/document/CanvasCommand.js";
 import { InitCommand } from "../../src/application/commands/document/InitCommand.js";
 import { ReadCommand } from "../../src/application/commands/document/ReadCommand.js";
 import { SaveCommand } from "../../src/application/commands/document/SaveCommand.js";
@@ -12,6 +13,7 @@ import { CreateCommand } from "../../src/application/commands/edit/CreateCommand
 import { MoveCommand } from "../../src/application/commands/edit/MoveCommand.js";
 import { RedoCommand } from "../../src/application/commands/history/RedoCommand.js";
 import { UndoCommand } from "../../src/application/commands/history/UndoCommand.js";
+import { CommandParser } from "../../src/cli/CommandParser.js";
 import { Rect } from "../../src/domain/Rect.js";
 import { SvgDocument } from "../../src/domain/SvgDocument.js";
 import { XmlSvgStore } from "../../src/infrastructure/svg/XmlSvgStore.js";
@@ -74,4 +76,40 @@ test("serialization failures leave an existing destination untouched", async t =
   await assert.rejects(new XmlSvgStore().write(path, document));
   assert.equal(await readFile(path, "utf8"), "original bytes");
   assert.deepEqual(await readdir(directory), ["keep.svg"]);
+});
+
+test("each document mutation blocks both history directions until the next successful edit", async t => {
+  const directory = await mkdtemp(join(tmpdir(), "svg-io-barriers-"));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const path = join(directory, "source.svg");
+  await writeFile(path, '<svg width="400" height="300"><rect id="r" x="10" y="20" width="30" height="40"/></svg>');
+  const parser = new CommandParser();
+  const operations = [
+    new InitCommand(400, 300), new ReadCommand(path), new SaveCommand(path), new CanvasCommand(400, 300),
+  ];
+  for (const operation of operations) {
+    const session = new EditorSession(new ShapeFactory(), new XmlSvgStore());
+    for (const line of ["init 400 300", "create rect r 10 20 30 40", "move r 5 6", "undo"]) {
+      await session.execute(parser.parse(line)!);
+    }
+    assert.equal(session.history.redoCount, 1);
+    await session.execute(operation);
+    await session.execute(parser.parse("canvas")!);
+    await session.execute(parser.parse("tree")!);
+    await session.execute(parser.parse("help")!);
+    await assert.rejects(session.execute(parser.parse("delete missing")!), /no such shape: missing/);
+    for (const command of [new UndoCommand(), new RedoCommand()]) {
+      await assert.rejects(session.execute(command), { message: "undo not allowed after io command" });
+    }
+    assert.equal(session.history.undoCount, 0);
+    assert.equal(session.history.redoCount, 0);
+    await session.execute(parser.parse("create g next")!);
+    await session.execute(new UndoCommand());
+    assert.equal(session.requireDocument().has("next"), false);
+    await assert.rejects(session.execute(new UndoCommand()), { message: "nothing to undo" });
+    await session.execute(new RedoCommand());
+    assert.equal(session.requireDocument().has("next"), true);
+    assert.equal(session.requireDocument().width, 400);
+    assert.equal(session.requireDocument().height, 300);
+  }
 });

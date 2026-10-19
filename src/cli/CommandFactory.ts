@@ -77,13 +77,12 @@ export class CommandFactory {
     const definition = this.#shapes.definitionFor(type);
     let values = args.tokens.slice(2);
     let containerId: string | undefined;
-    if (values.at(-1)?.value === "in" && !values.at(-1)?.quoted) {
-      throw new ApplicationError("missing container id after 'in'");
-    }
     const suffix = values.at(-2);
     if (suffix?.value === "in" && !suffix.quoted) {
       containerId = values.at(-1)!.value;
       values = values.slice(0, -2);
+    } else if (values.at(-1)?.value === "in" && !values.at(-1)?.quoted) {
+      throw new ApplicationError("missing container id after 'in'");
     }
     const attributes = definition.attributesFromArguments(values.map(token => token.value), type);
     if (definition.textArgumentIndex >= 0 && !values[definition.textArgumentIndex]?.quoted) {

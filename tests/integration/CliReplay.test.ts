@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { copyFile, mkdtemp, readFile, rm } from "node:fs/promises";
+import { copyFile, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -82,4 +82,23 @@ test("piped commands wait for save/read, preserve quoted file names and consume 
   assert.equal(result.stderr, "");
   assert.match(result.stdout, /  text="in"/);
   assert.doesNotMatch(result.stdout, /svg> /);
+});
+
+test("a failed import emits no provisional ID warnings and preserves the document and save path", async t => {
+  const directory = await mkdtemp(join(tmpdir(), "svg-cli-import-transaction-"));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  await writeFile(join(directory, "invalid.svg"), '<svg><rect/><g id="bad" unsupported="1"/></svg>');
+  const result = await CliHarness.run([
+    "init", "create g in", 'create text t 1 2 "in" in in', "save original.svg",
+    'set t text "changed"', "undo", "read invalid.svg", "redo", "save", "tree",
+  ].join("\n"), directory);
+  assert.equal(result.code, 0);
+  assert.equal(result.stderr, "error: unknown attribute: unsupported\n");
+  assert.doesNotMatch(result.stdout, /warning:/);
+  assert.match(result.stdout, /saved to original\.svg \(2 elements\)/);
+  const saved = (await new XmlSvgStore().read(join(directory, "original.svg"))).document;
+  assert.equal(saved.size, 2);
+  assert.equal(saved.find("t").parent?.containerId, "in");
+  assert.equal((saved.find("t") as Text).content, "changed");
+  assert.equal(await readFile(join(directory, "invalid.svg"), "utf8"), '<svg><rect/><g id="bad" unsupported="1"/></svg>');
 });

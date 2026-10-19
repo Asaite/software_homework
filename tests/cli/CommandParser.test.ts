@@ -56,6 +56,31 @@ test("every command name reaches its use case with semantic history and file bou
   assert.equal(session.requireDocument().width, 500);
 });
 
+test("in remains a valid container ID for every create type, including quoted text content", async () => {
+  const parser = new CommandParser();
+  const session = new EditorSession();
+  for (const line of [
+    "init", "create g in",
+    "create rect r 1 2 3 4 in in",
+    "create circle c 1 2 3 red in in",
+    "create ellipse e 1 2 3 4 in in",
+    "create line l 1 2 3 4 black in in",
+    'create text t 1 2 "in" in in',
+    "create g nested in in",
+  ]) await session.execute(parser.parse(line)!);
+
+  const document = session.requireDocument();
+  assert.deepEqual(document.find("in").children.map(shape => shape.id), ["r", "c", "e", "l", "t", "nested"]);
+  assert.equal((document.find("t") as Text).content, "in");
+  assert.equal(document.find("r").attributes["width"], "3");
+  assert.equal(document.find("c").styles["fill"], "red");
+  assert.equal(document.find("l").styles["stroke"], "black");
+  assert.throws(() => parser.parse("create rect missing 1 2 3 4 in"), /missing container id after 'in'/);
+  assert.throws(() => parser.parse('create text missing 1 2 "in" in'), /missing container id after 'in'/);
+  assert.equal(document.has("missing"), false);
+  document.assertInvariants();
+});
+
 test("wrong argument counts, missing IDs and malformed numeric values are rejected", () => {
   const parser = new CommandParser();
   for (const line of [
