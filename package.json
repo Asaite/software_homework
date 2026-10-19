@@ -1,0 +1,21 @@
+{
+  "name": "svg-editor",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Object-oriented SVG editor for Lab 1 Phase 1",
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "build": "tsc -p tsconfig.build.json",
+    "test": "node --import tsx --test tests/**/*.test.ts",
+    "demo": "tsx src/Main.ts"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.5",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2"
+  }
+}
